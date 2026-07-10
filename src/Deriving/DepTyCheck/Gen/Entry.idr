@@ -272,7 +272,13 @@ nameMod n = UN $ Basic "outer^<\{show n}>"
 
 internalGenCallingLambda : Elaboration m => CheckResult DerivationTask -> TTImp -> m TTImp
 internalGenCallingLambda (sig ** exts ** givsPos) call = do
-    let Just args = joinEithersPos sig.givenParams.asList exts.externals givsPos
+    -- `givsPos` is typed using `sig.givenParams.size`, but `joinEithersPos` needs it typed
+    -- using `sig.givenParams.asList.length`; these are equal, but not definitionally so as far
+    -- as the elaborator is concerned, so an explicit proof is needed to safely retype it
+    -- (otherwise the elaborator gets stuck trying to reduce the underlying `case` in `joinEithersPos`).
+    let Yes lenEq = (sig.givenParams.size) `decEq` (sig.givenParams.asList.length)
+      | No _ => fail "INTERNAL ERROR: given params size and list length disagree"
+    let Just args = joinEithersPos sig.givenParams.asList exts.externals (rewrite lenEq in givsPos)
       | Nothing => fail "INTERNAL ERROR: can't join partitioned args back"
     pure $ foldr mkLam call args
 
