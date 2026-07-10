@@ -127,7 +127,7 @@ withCoverage gen = do
   let tyLabelStr = "\{show tyName}[?]"
   let labelledValName = UN $ Basic "^val^"
   let labellingFunName = UN $ Basic "^labelling^"
-  let undpairedVal = "^undpaired^"
+  let undpairedVal = UN $ Basic "^undpaired^"
   let consLabellingFun = deriveMatchingCons
                            `(Test.DepTyCheck.Gen.Labels.Label)
                            (\con => var "fromString" .$ primVal (Str $ "\{show con.name} (user-defined)"))
@@ -138,7 +138,7 @@ withCoverage gen = do
                      ~(iCase (var labelledValName) implicitTrue $ pure $
                        patClause
                          (matchDPair $ bindVar undpairedVal)
-                         (var labellingFunName .$ varStr undpairedVal))
+                         (var labellingFunName .$ var undpairedVal))
                      (pure ~(var labelledValName)))
   pure $ label (fromString tyLabelStr) $ gen >>= labeller
 

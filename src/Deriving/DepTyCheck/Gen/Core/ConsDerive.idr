@@ -108,9 +108,9 @@ interface ConstructorDerivator where
   consGenExpr : CanonicGen m => GenSignature -> (con : Con) -> (given : SortedSet $ Fin con.args.length) -> (fuel : TTImp) -> m TTImp
 
   ||| Workarond of inability to put an arbitrary name under `IBindVar`
-  bindNameRenamer : Name -> String
-  bindNameRenamer $ UN $ Basic n = n
-  bindNameRenamer n = "^bnd^" ++ show n
+  bindNameRenamer : Name -> Name
+  bindNameRenamer n@(UN $ Basic _) = n
+  bindNameRenamer n = UN $ Basic $ "^bnd^" ++ show n
 
 --- Particular tactics ---
 
@@ -251,7 +251,7 @@ namespace NonObligatoryExts
       let argsTypeApps = do
         let conArgNames : SortedSet Name = fromList $ argName <$> con.args
         let intExprMapper : TTImp -> TTImp
-            intExprMapper $ IVar fc n = IVar fc $ if conArgNames `contains'` n then UN $ Basic $ bindNameRenamer n else n
+            intExprMapper $ IVar fc n = IVar fc $ if conArgNames `contains'` n then bindNameRenamer n else n
             intExprMapper x = x
         argsTypeApps <&> {argApps $= map @{Compose} $ mapTTImp intExprMapper}
 
@@ -260,7 +260,7 @@ namespace NonObligatoryExts
 
       -- Form the expression of calling the current constructor
       let callCons = do
-        let constructorCall = callCon con $ bindNames.withIdx <&> \(idx, n) => if contains idx dependees then implicitTrue else varStr n
+        let constructorCall = callCon con $ bindNames.withIdx <&> \(idx, n) => if contains idx dependees then implicitTrue else var n
         let wrapImpls : Nat -> TTImp
             wrapImpls Z     = constructorCall
             wrapImpls (S n) = var `{Builtin.DPair.MkDPair} .$ implicitTrue .$ wrapImpls n
@@ -287,7 +287,7 @@ namespace NonObligatoryExts
             -- Those which are `Right` are given, those which are `Left` are needs to be generated.
             let depArgs : Vect typeOfGened.args.length (Either (Fin con.args.length) TTImp) := argsOfTypeOfGened <&> \case
               Right expr => Right expr
-              Left i     => if contains i presentArguments then Right $ varStr $ index i bindNames else Left i
+              Left i     => if contains i presentArguments then Right $ var $ index i bindNames else Left i
 
             -- Determine which arguments will be on the left of dpair in subgen call, in correct order
             let subgeneratedArgs = mapMaybe getLeft $ toList depArgs
@@ -316,7 +316,7 @@ namespace NonObligatoryExts
 
             -- Form an expression of the RHS of a bind; simplify lambda if subgeneration result type does not require pattern matching
             let bindRHS = \cont => case bindSubgenResult of
-                                     IBindVar _ n => lam (MkArg MW ExplicitArg (Just $ UN $ Basic n) implicitFalse) cont
+                                     IBindVar _ n => lam (MkArg MW ExplicitArg (Just n) implicitFalse) cont
                                      _            => `(\ ~bindSubgenResult => ~cont)
 
             -- Chain the subgen call with a given continuation

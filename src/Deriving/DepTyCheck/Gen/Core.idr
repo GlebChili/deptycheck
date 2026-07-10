@@ -62,18 +62,18 @@ ConstructorDerivator => DerivatorCore where
     consRecs <- logBounds {level=Trace} "consRec" [sig] $ Prelude.for sig.targetType.cons $ \con => do
       let rec = isRecursive {containingType=Just sig.targetType} con
       tuneImpl <- search $ ProbabilityTuning $ Con.name con
-      let baseForRec = \subFuelArg => var `{Deriving.DepTyCheck.Util.Reflection.leftDepth} .$ varStr subFuelArg
-      let someStrangeName = "^some_strange_name^"
+      let baseForRec = \subFuelArg => var `{Deriving.DepTyCheck.Util.Reflection.leftDepth} .$ var subFuelArg
+      let someStrangeName = UN $ Basic "^some_strange_name^"
       w <- case rec of
         False => pure $ Left $ maybe one (\impl => tuneWeight @{impl} one) tuneImpl
         True  => Right <$> case tuneImpl of
-          Nothing   => pure $ lam (lambdaArg $ UN $ Basic someStrangeName) $ baseForRec someStrangeName
+          Nothing   => pure $ lam (lambdaArg someStrangeName) $ baseForRec someStrangeName
           Just impl => quote (tuneWeight @{impl}) <&> \wm =>
-            lam (lambdaArg $ UN $ Basic someStrangeName) $ workaroundFromNat $ wm `applySyn` baseForRec someStrangeName
+            lam (lambdaArg someStrangeName) $ workaroundFromNat $ wm `applySyn` baseForRec someStrangeName
       Prelude.pure (con, MkConWeightInfo w)
 
     -- decide how to name a fuel argument on the LHS
-    let fuelArg = "^fuel_arg^" -- I'm using a name containing chars that cannot be present in the code parsed from the Idris frontend
+    let fuelArg = UN $ Basic "^fuel_arg^" -- I'm using a name containing chars that cannot be present in the code parsed from the Idris frontend
 
     -- generate the case expression deciding whether will we go into recursive constructors or not
     let outmostRHS = fuelDecisionExpr fuelArg consRecs
@@ -88,10 +88,10 @@ ConstructorDerivator => DerivatorCore where
     -- I'm using `UN` but containing chars that cannot be present in the code parsed from the Idris frontend
 
     -- this is a workarond for Idris compiler bug #2983
-    namesWrapper : String -> String
-    namesWrapper s = "inter^<\{s}>"
+    namesWrapper : Name -> Name
+    namesWrapper n = UN $ Basic "inter^<\{show n}>"
 
-    fuelDecisionExpr : (fuelArg : String) -> List (Con, ConWeightInfo) -> TTImp
+    fuelDecisionExpr : (fuelArg : Name) -> List (Con, ConWeightInfo) -> TTImp
     fuelDecisionExpr fuelAr consRecs = do
 
       let reflectNat1 : Nat1 -> TTImp
@@ -106,19 +106,20 @@ ConstructorDerivator => DerivatorCore where
       -- check if there are any non-recursive constructors
       let Nothing = for consRecs $ \(con, w) => (con,) <$> getLeft w.weight
           -- only constantly weighted constructors (usually, non-recusrive), thus just call all without spending fuel
-        | Just consRecs => callConstFreqs "\{logPosition sig} (non-recursive)".label (varStr fuelAr) consRecs
+        | Just consRecs => callConstFreqs "\{logPosition sig} (non-recursive)".label (var fuelAr) consRecs
 
       -- pattern match on the fuel argument
-      iCase .| varStr fuelAr .| var `{Data.Fuel.Fuel} .|
+      iCase .| var fuelAr .| var `{Data.Fuel.Fuel} .|
 
         [ -- if fuel is dry, call all non-recursive constructors on `Dry`
           let nonRecCons = mapMaybe (\(con, w) => (con,) <$> getLeft w.weight) consRecs in
-          var `{Data.Fuel.Dry}                        .= callConstFreqs "\{logPosition sig} (dry fuel)".label (varStr fuelAr) nonRecCons
+          var `{Data.Fuel.Dry}                        .= callConstFreqs "\{logPosition sig} (dry fuel)".label (var fuelAr) nonRecCons
 
         , do -- if fuel is `More`, spend one fuel and call all constructors on the rest
-          let subFuelArg = "^sub" ++ fuelAr -- I'm using a name containing chars that cannot be present in the code parsed from the Idris frontend
-          let selectFuel = \r => varStr $ if recursive r then subFuelArg else fuelAr
-          let weight = either reflectNat1 (`applySyn` varStr subFuelArg) . weight
+          -- I'm using a name containing chars that cannot be present in the code parsed from the Idris frontend
+          let subFuelArg = UN $ Basic $ "^sub" ++ show fuelAr
+          let selectFuel = \r => var $ if recursive r then subFuelArg else fuelAr
+          let weight = either reflectNat1 (`applySyn` var subFuelArg) . weight
           var `{Data.Fuel.More} .$ bindVar subFuelArg .= callFrequency "\{logPosition sig} (spend fuel)".label
                                                            (consRecs <&> \(con, rec) => (weight rec, callConsGen (selectFuel rec) con))
         ]
